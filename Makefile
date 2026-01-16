@@ -1,6 +1,7 @@
 .PHONY: help install setup clean test lint format
 .PHONY: catalog-server prefect-server prefect-stop deploy-flows
 .PHONY: demo run-weather run-dbt run-pipeline
+.PHONY: run-now run-now-weather run-now-dbt run-now-pipeline
 .PHONY: fetch-data load-data dbt-run dbt-test
 .PHONY: all start stop status
 
@@ -116,6 +117,20 @@ run-dbt: ## Run dbt transformations flow
 run-pipeline: ## Run complete end-to-end pipeline
 	@echo "$(BLUE)Running complete pipeline...$(NC)"
 	@export PREFECT_API_URL=$(PREFECT_API_URL) && poetry run python src/flows/main_pipeline.py
+
+##@ "Run Now" - Trigger & Watch Dashboard
+
+run-now: ## Run and watch demo flow with live dashboard (auto-starts server)
+	@export PREFECT_API_URL=$(PREFECT_API_URL) && poetry run python scripts/run_and_watch.py demo
+
+run-now-weather: ## Run and watch weather flow with live dashboard
+	@export PREFECT_API_URL=$(PREFECT_API_URL) && poetry run python scripts/run_and_watch.py weather
+
+run-now-dbt: ## Run and watch dbt flow with live dashboard
+	@export PREFECT_API_URL=$(PREFECT_API_URL) && poetry run python scripts/run_and_watch.py dbt
+
+run-now-pipeline: ## Run and watch complete pipeline with live dashboard
+	@export PREFECT_API_URL=$(PREFECT_API_URL) && poetry run python scripts/run_and_watch.py pipeline
 
 ##@ Data Operations
 

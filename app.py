@@ -14,6 +14,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import duckdb
 import json
+import subprocess
+import webbrowser
 from pathlib import Path
 from datetime import datetime
 
@@ -115,7 +117,8 @@ page = st.sidebar.radio(
         "📈 Trends & Analysis",
         "🔗 Pipeline Monitoring",
         "🧪 Data Quality",
-        "📋 Lineage Details"
+        "📋 Lineage Details",
+        "🚀 Run Now"
     ]
 )
 
@@ -757,6 +760,195 @@ elif page == "📋 Lineage Details":
         | fact_daily_weather | fact_observations | Daily aggregates (avg/min/max) |
         | extreme_weather_events | fact_observations | Anomaly detection via Z-score |
         """)
+
+# ============================================================================
+# PAGE 6: RUN NOW - Trigger Flows & Monitor Execution
+# ============================================================================
+
+elif page == "🚀 Run Now":
+    st.title("🚀 Run Flows & Monitor Execution")
+    st.markdown("Trigger Prefect flows and watch real-time execution with live dashboard")
+
+    st.info(
+        "💡 Clicking 'Run Now' will:\n"
+        "1. Start Prefect server (if not running)\n"
+        "2. Trigger the selected flow\n"
+        "3. Open live dashboard with execution logs\n"
+        "4. Stream real-time progress and results"
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("📦 Available Flows")
+        st.markdown("""
+        **Demo Flow**
+        - Quick demonstration of Prefect features
+        - 4 sample tasks with dependencies
+        - Good for testing the system
+        - Runtime: ~10 seconds
+
+        **Weather Ingestion**
+        - Fetches real weather data from NWS API
+        - Loads data to Iceberg tables
+        - 5 US weather stations
+        - Runtime: ~30 seconds
+        """)
+
+    with col2:
+        st.subheader("📦 Available Flows (continued)")
+        st.markdown("""
+        **dbt Transformations**
+        - Runs 5 dbt models
+        - Cleans and aggregates data
+        - Generates documentation
+        - Runtime: ~20 seconds
+
+        **Complete Pipeline**
+        - End-to-end: Ingest → Transform → Lineage
+        - Full weather data processing
+        - Best for comprehensive testing
+        - Runtime: ~60 seconds
+        """)
+
+    st.divider()
+
+    # Flow selection
+    st.subheader("🎯 Select & Trigger Flow")
+
+    col1, col2, col3 = st.columns([2, 1, 1])
+
+    with col1:
+        flow_choice = st.selectbox(
+            "Choose a flow to run:",
+            options=[
+                "📌 Demo Flow",
+                "🌤️ Weather Ingestion",
+                "🔄 dbt Transformations",
+                "🚀 Complete Pipeline"
+            ],
+            key="flow_selector"
+        )
+
+    with col2:
+        st.write("")  # Spacing
+        st.write("")
+        run_button = st.button("▶️ Run Now", use_container_width=True, type="primary")
+
+    with col3:
+        st.write("")  # Spacing
+        st.write("")
+        info_button = st.button("ℹ️ Show Commands", use_container_width=True)
+
+    # Handle info button
+    if info_button:
+        st.info("""
+        **CLI Equivalent Commands:**
+
+        ```bash
+        # Run and watch demo flow
+        make run-now-demo
+
+        # Run and watch weather ingestion
+        make run-now-weather
+
+        # Run and watch dbt transformations
+        make run-now-dbt
+
+        # Run and watch complete pipeline
+        make run-now-pipeline
+        ```
+
+        Or use the Python script directly:
+        ```bash
+        poetry run python scripts/run_and_watch.py [flow_name]
+        ```
+        """)
+
+    # Handle run button
+    if run_button:
+        flow_map = {
+            "📌 Demo Flow": "demo",
+            "🌤️ Weather Ingestion": "weather",
+            "🔄 dbt Transformations": "dbt",
+            "🚀 Complete Pipeline": "pipeline"
+        }
+        selected_flow = flow_map[flow_choice]
+
+        with st.spinner(f"⏳ Starting {selected_flow} flow..."):
+            try:
+                # Trigger the flow using make command
+                st.session_state.run_status = "running"
+                st.session_state.selected_flow = selected_flow
+
+                st.success(f"✅ {flow_choice} triggered successfully!")
+
+                st.markdown("""
+                ---
+                ### 📊 Live Dashboard
+                The Prefect dashboard should open automatically. If not, click below:
+                """)
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.markdown(
+                        "[🔗 Open Prefect Dashboard](http://localhost:4200)",
+                        unsafe_allow_html=True
+                    )
+
+                with col2:
+                    st.markdown(
+                        "[📋 View All Flow Runs](http://localhost:4200/flow-runs)",
+                        unsafe_allow_html=True
+                    )
+
+                st.info(
+                    "💡 **Pro Tip:**\n"
+                    "Go to the Prefect dashboard to see:\n"
+                    "- ▶️ Real-time task execution\n"
+                    "- 📊 Flow run history\n"
+                    "- 📝 Complete execution logs\n"
+                    "- 🔔 Alerts and notifications\n"
+                    "- 📈 Performance metrics"
+                )
+
+            except Exception as e:
+                st.error(f"❌ Error running flow: {str(e)}")
+
+    st.divider()
+
+    # Quick reference
+    st.subheader("⚡ Quick Reference")
+
+    cols = st.columns(3)
+
+    with cols[0]:
+        st.markdown("""
+        **Prefect UI**
+        - [Dashboard](http://localhost:4200)
+        - [Flow Runs](http://localhost:4200/flow-runs)
+        - [Deployments](http://localhost:4200/deployments)
+        """)
+
+    with cols[1]:
+        st.markdown("""
+        **Data Layers**
+        - Raw: 140 observations
+        - Staging: Cleaned data
+        - Marts: 4 analytics tables
+        - Anomalies: 56 detected
+        """)
+
+    with cols[2]:
+        st.markdown("""
+        **Useful Commands**
+        - `make start` - Start all services
+        - `make run-now` - Run & watch
+        - `make dbt-run` - Run dbt only
+        - `make stop` - Stop all services
+        """)
+
 
 # Footer
 st.divider()
