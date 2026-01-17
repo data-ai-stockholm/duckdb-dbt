@@ -16,8 +16,12 @@ import duckdb
 import json
 import subprocess
 import webbrowser
+import httpx
+import time
+import os
 from pathlib import Path
 from datetime import datetime
+from typing import Optional, Dict, Any
 
 # Page configuration
 st.set_page_config(
@@ -66,6 +70,106 @@ def load_manifest():
         with open(manifest_path) as f:
             return json.load(f)
     return None
+
+
+# ============================================================================
+# PREFECT INTEGRATION FUNCTIONS
+# ============================================================================
+
+PREFECT_API_URL = "http://0.0.0.0:4200/api"
+FLOW_MODULES = {
+    "📌 Demo Flow": "src.flows.demo_flow",
+    "🌤️ Weather Ingestion": "src.flows.weather_ingestion",
+    "🔄 dbt Transformations": "src.flows.dbt_transformations",
+    "🚀 Complete Pipeline": "src.flows.main_pipeline",
+}
+
+
+def is_prefect_running() -> bool:
+    """Check if Prefect server is running."""
+    try:
+        with httpx.Client(timeout=2.0) as client:
+            response = client.get(f"{PREFECT_API_URL}/health")
+            return response.status_code == 200
+    except Exception:
+        return False
+
+
+def trigger_flow_subprocess(flow_module: str) -> bool:
+    """Trigger flow in subprocess and return immediately."""
+    try:
+        env = os.environ.copy()
+        env["PREFECT_API_URL"] = PREFECT_API_URL
+
+        subprocess.Popen(
+            ["poetry", "run", "python", "-m", flow_module],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        return True
+    except Exception as e:
+        st.error(f"❌ Error triggering flow: {e}")
+        return False
+
+
+def get_latest_flow_runs(limit: int = 5) -> list:
+    """Get latest flow runs from Prefect API."""
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            response = client.get(
+                f"{PREFECT_API_URL}/flow_runs",
+                params={"sort": "-start_time", "limit": limit}
+            )
+            if response.status_code == 200:
+                return response.json()
+            return []
+    except Exception:
+        return []
+
+
+def get_flow_run_details(flow_run_id: str) -> Optional[Dict[str, Any]]:
+    """Get details for a specific flow run."""
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            response = client.get(f"{PREFECT_API_URL}/flow_runs/{flow_run_id}")
+            if response.status_code == 200:
+                return response.json()
+            return None
+    except Exception:
+        return None
+
+
+def get_task_runs(flow_run_id: str) -> list:
+    """Get task runs for a flow run."""
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            response = client.get(
+                f"{PREFECT_API_URL}/task_runs",
+                params={"flow_run_id": flow_run_id, "sort": "start_time"}
+            )
+            if response.status_code == 200:
+                return response.json()
+            return []
+    except Exception:
+        return []
+
+
+def get_flow_run_logs(flow_run_id: str, limit: int = 50) -> list:
+    """Get logs for a flow run."""
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            response = client.get(
+                f"{PREFECT_API_URL}/logs",
+                params={"flow_run_id": flow_run_id, "sort": "-timestamp", "limit": limit}
+            )
+            if response.status_code == 200:
+                logs = response.json()
+                # Reverse to show oldest first
+                return list(reversed(logs))
+            return []
+    except Exception:
+        return []
 
 
 def get_record_counts():
@@ -767,55 +871,24 @@ elif page == "📋 Lineage Details":
 
 elif page == "🚀 Run Now":
     st.title("🚀 Run Flows & Monitor Execution")
-    st.markdown("Trigger Prefect flows and watch real-time execution with live dashboard")
+    st.markdown("Trigger Prefect flows and watch real-time execution - all in one place!")
 
-    st.info(
-        "💡 Clicking 'Run Now' will:\n"
-        "1. Start Prefect server (if not running)\n"
-        "2. Trigger the selected flow\n"
-        "3. Open live dashboard with execution logs\n"
-        "4. Stream real-time progress and results"
-    )
+    # Initialize session state
+    if "flow_running" not in st.session_state:
+        st.session_state.flow_running = False
+    if "flow_run_id" not in st.session_state:
+        st.session_state.flow_run_id = None
 
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("📦 Available Flows")
-        st.markdown("""
-        **Demo Flow**
-        - Quick demonstration of Prefect features
-        - 4 sample tasks with dependencies
-        - Good for testing the system
-        - Runtime: ~10 seconds
-
-        **Weather Ingestion**
-        - Fetches real weather data from NWS API
-        - Loads data to Iceberg tables
-        - 5 US weather stations
-        - Runtime: ~30 seconds
-        """)
-
-    with col2:
-        st.subheader("📦 Available Flows (continued)")
-        st.markdown("""
-        **dbt Transformations**
-        - Runs 5 dbt models
-        - Cleans and aggregates data
-        - Generates documentation
-        - Runtime: ~20 seconds
-
-        **Complete Pipeline**
-        - End-to-end: Ingest → Transform → Lineage
-        - Full weather data processing
-        - Best for comprehensive testing
-        - Runtime: ~60 seconds
-        """)
+    # Check Prefect server status
+    prefect_running = is_prefect_running()
+    if prefect_running:
+        st.success("✅ Prefect server is running at http://localhost:4200")
+    else:
+        st.warning("⚠️ Prefect server not running. It will be started when you run a flow.")
 
     st.divider()
 
-    # Flow selection
-    st.subheader("🎯 Select & Trigger Flow")
-
+    # Flow selection & execution
     col1, col2, col3 = st.columns([2, 1, 1])
 
     with col1:
@@ -831,122 +904,155 @@ elif page == "🚀 Run Now":
         )
 
     with col2:
-        st.write("")  # Spacing
         st.write("")
-        run_button = st.button("▶️ Run Now", use_container_width=True, type="primary")
+        run_button = st.button("▶️ Run Now", use_container_width=True, type="primary", key="run_button")
 
     with col3:
-        st.write("")  # Spacing
         st.write("")
-        info_button = st.button("ℹ️ Show Commands", use_container_width=True)
-
-    # Handle info button
-    if info_button:
-        st.info("""
-        **CLI Equivalent Commands:**
-
-        ```bash
-        # Run and watch demo flow
-        make run-now-demo
-
-        # Run and watch weather ingestion
-        make run-now-weather
-
-        # Run and watch dbt transformations
-        make run-now-dbt
-
-        # Run and watch complete pipeline
-        make run-now-pipeline
-        ```
-
-        Or use the Python script directly:
-        ```bash
-        poetry run python scripts/run_and_watch.py [flow_name]
-        ```
-        """)
+        refresh_button = st.button("🔄 Refresh", use_container_width=True, key="refresh_button")
 
     # Handle run button
     if run_button:
-        flow_map = {
-            "📌 Demo Flow": "demo",
-            "🌤️ Weather Ingestion": "weather",
-            "🔄 dbt Transformations": "dbt",
-            "🚀 Complete Pipeline": "pipeline"
-        }
-        selected_flow = flow_map[flow_choice]
+        flow_module = FLOW_MODULES[flow_choice]
+        st.session_state.flow_running = True
 
-        with st.spinner(f"⏳ Starting {selected_flow} flow..."):
-            try:
-                # Trigger the flow using make command
-                st.session_state.run_status = "running"
-                st.session_state.selected_flow = selected_flow
+        with st.spinner(f"⏳ Starting {flow_choice}..."):
+            if trigger_flow_subprocess(flow_module):
+                st.success(f"✅ {flow_choice} started!")
+                st.session_state.flow_running = True
+                time.sleep(2)  # Give it time to register
+            else:
+                st.error("Failed to start flow")
+                st.session_state.flow_running = False
 
-                st.success(f"✅ {flow_choice} triggered successfully!")
+    # Display live execution if flow is running
+    if st.session_state.flow_running or refresh_button:
+        st.divider()
+        st.subheader("📊 Live Execution Monitor")
 
-                st.markdown("""
-                ---
-                ### 📊 Live Dashboard
-                The Prefect dashboard should open automatically. If not, click below:
-                """)
+        # Get latest flow runs
+        flow_runs = get_latest_flow_runs(limit=10)
 
-                col1, col2 = st.columns(2)
+        if flow_runs:
+            # Display latest run
+            latest_run = flow_runs[0]
+            run_id = latest_run.get("id", "N/A")
+            run_name = latest_run.get("name", "Unknown")
+            state = latest_run.get("state", {}).get("type", "UNKNOWN")
+            start_time = latest_run.get("start_time", "N/A")
 
+            # Color code for state
+            state_colors = {
+                "PENDING": "🔵",
+                "RUNNING": "🟡",
+                "COMPLETED": "🟢",
+                "FAILED": "🔴",
+                "CANCELLED": "⚫"
+            }
+            state_emoji = state_colors.get(state, "❓")
+
+            # Tabs for different views
+            tab1, tab2, tab3 = st.tabs(["📊 Overview", "📝 Logs", "🔄 Task Progress"])
+
+            with tab1:
+                col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.markdown(
-                        "[🔗 Open Prefect Dashboard](http://localhost:4200)",
-                        unsafe_allow_html=True
-                    )
-
+                    st.metric("Flow", run_name)
                 with col2:
-                    st.markdown(
-                        "[📋 View All Flow Runs](http://localhost:4200/flow-runs)",
-                        unsafe_allow_html=True
-                    )
+                    st.metric("State", f"{state_emoji} {state}")
+                with col3:
+                    st.metric("Run ID", run_id[:8] + "...")
+                with col4:
+                    st.metric("Started", str(start_time)[:10])
 
-                st.info(
-                    "💡 **Pro Tip:**\n"
-                    "Go to the Prefect dashboard to see:\n"
-                    "- ▶️ Real-time task execution\n"
-                    "- 📊 Flow run history\n"
-                    "- 📝 Complete execution logs\n"
-                    "- 🔔 Alerts and notifications\n"
-                    "- 📈 Performance metrics"
-                )
+                st.info(f"**Full Run ID:** {run_id}")
 
-            except Exception as e:
-                st.error(f"❌ Error running flow: {str(e)}")
+            with tab2:
+                st.subheader("Execution Logs")
+                logs = get_flow_run_logs(run_id, limit=100)
 
-    st.divider()
+                if logs:
+                    # Create log display
+                    log_text = ""
+                    for log in logs:
+                        timestamp = log.get("timestamp", "")
+                        message = log.get("message", "")
+                        level = log.get("level", "INFO")
 
-    # Quick reference
-    st.subheader("⚡ Quick Reference")
+                        # Color code by level
+                        level_emoji = {
+                            20: "ℹ️",  # INFO
+                            30: "⚠️",  # WARNING
+                            40: "❌",  # ERROR
+                            50: "💥"   # CRITICAL
+                        }.get(level, "•")
 
-    cols = st.columns(3)
+                        log_text += f"{level_emoji} {timestamp} - {message}\n"
 
-    with cols[0]:
+                    st.code(log_text, language="")
+                else:
+                    st.info("No logs available yet. Check back in a moment...")
+
+            with tab3:
+                st.subheader("Task Execution Progress")
+                task_runs = get_task_runs(run_id)
+
+                if task_runs:
+                    # Create task progress table
+                    task_data = []
+                    for task in task_runs:
+                        task_name = task.get("name", "Unknown")
+                        task_state = task.get("state", {}).get("type", "PENDING")
+                        start = task.get("start_time", "-")
+                        end = task.get("end_time", "-")
+
+                        state_icon = {
+                            "PENDING": "⏳",
+                            "RUNNING": "▶️",
+                            "COMPLETED": "✅",
+                            "FAILED": "❌",
+                            "CANCELLED": "⚠️"
+                        }.get(task_state, "•")
+
+                        task_data.append({
+                            "Status": f"{state_icon} {task_state}",
+                            "Task": task_name,
+                            "Started": str(start)[:19] if start != "-" else "-",
+                            "Ended": str(end)[:19] if end != "-" else "-"
+                        })
+
+                    task_df = pd.DataFrame(task_data)
+                    st.dataframe(task_df, use_container_width=True)
+                else:
+                    st.info("Tasks will appear here as they execute...")
+
+            # Auto-refresh indicator
+            if state in ["RUNNING", "PENDING"]:
+                st.info("⏱️ This page auto-refreshes every 5 seconds. Press F5 or wait...")
+                time.sleep(5)
+                st.rerun()
+
+        else:
+            st.info("No flow runs found. Start a flow to see execution details here!")
+
+    # Quick info
+    with st.expander("ℹ️ Flow Descriptions"):
         st.markdown("""
-        **Prefect UI**
-        - [Dashboard](http://localhost:4200)
-        - [Flow Runs](http://localhost:4200/flow-runs)
-        - [Deployments](http://localhost:4200/deployments)
-        """)
+        **📌 Demo Flow** - Quick test of Prefect features (~10 sec)
+        - 4 demo tasks with dependencies
+        - Perfect for testing
 
-    with cols[1]:
-        st.markdown("""
-        **Data Layers**
-        - Raw: 140 observations
-        - Staging: Cleaned data
-        - Marts: 4 analytics tables
-        - Anomalies: 56 detected
-        """)
+        **🌤️ Weather Ingestion** - Fetch weather data (~30 sec)
+        - Fetches from NWS API
+        - Loads to Iceberg
 
-    with cols[2]:
-        st.markdown("""
-        **Useful Commands**
-        - `make start` - Start all services
-        - `make run-now` - Run & watch
-        - `make dbt-run` - Run dbt only
-        - `make stop` - Stop all services
+        **🔄 dbt Transformations** - Run dbt models (~20 sec)
+        - 5 production models
+        - Data cleaning & aggregation
+
+        **🚀 Complete Pipeline** - Full end-to-end (~60 sec)
+        - All steps combined
+        - Best for comprehensive test
         """)
 
 
