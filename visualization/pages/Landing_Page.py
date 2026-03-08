@@ -104,14 +104,14 @@ date_range_filter_column, station_filter_column = st.columns(2)
 # Date input for weather data filtering
 today = datetime.datetime.now()
 next_year = today.year + 1
-nov_29 = datetime.date(today.year, 11, 29)
+jan_01 = datetime.date(today.year, 1, 1)
 dec_31 = datetime.date(today.year, 12, 31)
 
 with date_range_filter_column:
     weather_date_range = st.date_input(
         "Filter the date range for weather data:",
-        (nov_29, datetime.date(today.year, 12, 31)),
-        nov_29,
+        (jan_01, datetime.date(today.year, 12, 31)),
+        jan_01,
         dec_31,
         format="MM.DD.YYYY",
     )
