@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   ingestion_service:
     build:
@@ -15,8 +13,7 @@ services:
       - ./ingestion_data:/app/ingestion_data
       - ./ingestion:/app/ingestion:ro
     working_dir: /app
-    # command: ["sleep", "infinity"]
-    command: ["python", "ingestion/ingestion_service.py"]
+    command: ["python", "ingestion/ingestion_service.py", "--fetch_station_group_limit=${FETCH_STATION_GROUP_LIMIT}", "--cadence_seconds=${CADENCE_SECONDS}"]
     stdin_open: true
     tty: true
 

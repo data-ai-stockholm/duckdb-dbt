@@ -4,6 +4,7 @@ import duckdb
 import pandas as pd
 import os
 import altair as alt
+import shutil
 
 st.set_page_config(layout="wide")
 
@@ -19,7 +20,6 @@ while not (os.path.exists(write_db_path)):
 # Attempt to copy latest write DB to read DB (non-fatal)
 try:
     # copy if exists; this keeps the same approach used on landing_page
-    import shutil
     shutil.copy(write_db_path, read_db_path)
 except Exception:
     pass
