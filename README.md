@@ -9,19 +9,72 @@
 
 Production-ready data engineering project demonstrating **DuckDB**, **dbt**, **Apache Iceberg**, **Prefect orchestration**, and **Streamlit visualization** with a unified web UI.
 
-> End-to-end weather data pipeline from API ingestion through transformation to interactive visualization
-
 ## Quick Start
 
-### One Command to Launch
-
 ```bash
+poetry install
 poetry run streamlit run app.py
 ```
 
 Opens: **http://localhost:8501**
 
-That's it! Everything you need is in one unified web UI.
+## Architecture
+
+```mermaid
+flowchart TD
+    A([National Weather Service API]) -->|HTTP fetch| B[fetch_stations.py\nfetch_observations.py]
+
+    subgraph Ingestion ["Ingestion — src/ingestion/"]
+        B --> C[iceberg_manager.py\nWrite to Iceberg tables]
+    end
+
+    subgraph Catalog ["Iceberg REST Catalog — src/catalog/"]
+        D[rest_server.py\nPort 8181]
+    end
+
+    C <-->|REST protocol| D
+    D --> E[(Warehouse\nParquet + metadata)]
+
+    subgraph Transformation ["Transformation — dbt/"]
+        F[stg_observations\nCleaning + unit conversion]
+        F --> G[fact_observations]
+        F --> H[fact_daily_weather]
+        F --> I[dim_stations]
+        F --> J[extreme_weather_events\nZ-score anomaly detection]
+    end
+
+    E -->|DuckDB reads Iceberg| F
+
+    subgraph Orchestration ["Orchestration — src/flows/"]
+        K[Prefect\nPort 4200]
+    end
+
+    K -->|triggers| Ingestion
+    K -->|triggers| Transformation
+
+    subgraph Visualization ["Visualization — app.py"]
+        L[Streamlit UI\nPort 8501]
+        L --> L1[Analytics Overview]
+        L --> L2[Trends & Analysis]
+        L --> L3[Pipeline Monitoring]
+        L --> L4[Data Quality]
+        L --> L5[Lineage Details]
+    end
+
+    G & H & I & J -->|DuckDB queries| L
+```
+
+## Data Flow
+
+```mermaid
+flowchart LR
+    A[140 Raw Observations] -->|stg_observations| B[140 Cleaned Records]
+    B -->|fact_observations| C[140 Enriched Facts]
+    B -->|fact_daily_weather| D[40 Daily Aggregates]
+    B -->|dim_stations| E[5 Stations]
+    B -->|extreme_weather_events| F[56 Anomalies]
+    C & D & E & F --> G[Streamlit Dashboard]
+```
 
 ## Features
 
@@ -29,85 +82,21 @@ That's it! Everything you need is in one unified web UI.
 - **Pipeline Monitoring** - Architecture, record flow, status tracking
 - **Data Quality Metrics** - NULL checks, statistics, uniqueness validation
 - **Complete Lineage** - dbt model dependencies and documentation
-- **Apache Iceberg** - Production-grade table format with REST catalog
+- **Apache Iceberg** - Production-grade table format with custom REST catalog
 - **DuckDB** - Native Iceberg support with v1.4.2+
 - **dbt** - 5 production models (staging + 4 marts)
 - **Prefect** - Workflow orchestration at http://localhost:4200
 - **Multi-Cloud** - S3, Azure Blob Storage, GCS support
 
-## What You Get
-
-### Unified Streamlit UI (Single Port: 8501)
-
-Navigate via sidebar with 5 pages:
-
-| Page | What It Shows |
-|------|---------------|
-| **Analytics Overview** | Summary metrics, station data, real-time stats |
-| **Trends & Analysis** | Temperature/humidity trends, weather conditions, anomalies |
-| **Pipeline Monitoring** | Architecture diagram, record flow (140→40), pipeline status |
-| **Data Quality** | NULL checks (100% passing), statistics, uniqueness |
-| **Lineage Details** | dbt models, sources, complete dependency graph |
-
-### Data Metrics
-
-- **140** weather observations across **5 US stations** (KJFK, KLAX, KORD, KDFW, KATL)
-- **Temperature range**: 25.8°C → 74.8°C (avg 50.8°C)
-- **Humidity**: 30-90%
-- **56 anomalies** detected via Z-score analysis
-- **40 daily aggregates** from 8 unique dates
-- **100%** non-NULL critical fields
-
-### Data Flow
-
-```
-Raw Observations (140)
-    ↓ [dbt staging]
-Cleaned Data (140)
-    ↓ [dbt marts]
-Analytics Tables:
-  • fact_observations (140)
-  • fact_daily_weather (40)
-  • dim_stations (5)
-  • extreme_weather_events (56)
-    ↓ [Streamlit visualization]
-Interactive Web UI (http://localhost:8501)
-```
-
-## Architecture
-
-```
-Data Ingestion
-    ↓ (NWS API)
-DuckDB + Iceberg
-    ↓ (weather.duckdb)
-dbt Transformations
-    ├─ stg_observations (cleaning)
-    ├─ fact_observations (facts)
-    ├─ fact_daily_weather (aggregates)
-    ├─ dim_stations (dimension)
-    └─ extreme_weather_events (anomalies)
-    ↓
-Streamlit Dashboard (app.py)
-    ├─ Analytics
-    ├─ Trends
-    ├─ Pipeline Status
-    ├─ Data Quality
-    └─ Lineage
-
-(Optional) Prefect Orchestration @ localhost:4200
-(Optional) dbt Docs @ localhost:8000
-```
-
 ## Project Structure
 
 ```
 duckdb-dbt/
-├── app.py                              MAIN: Unified Streamlit UI
-├── weather.duckdb                      Database with all data
+├── app.py                     Unified Streamlit UI (5 pages)
 ├── dbt/
 │   ├── models/
-│   │   ├── staging/stg_observations.sql
+│   │   ├── staging/
+│   │   │   └── stg_observations.sql
 │   │   └── marts/
 │   │       ├── fact_observations.sql
 │   │       ├── fact_daily_weather.sql
@@ -116,16 +105,17 @@ duckdb-dbt/
 │   ├── dbt_project.yml
 │   └── profiles.yml
 ├── src/
-│   ├── catalog/rest_server.py          Iceberg REST API
-│   ├── flows/                          Prefect workflows
-│   ├── ingestion/                      Data loading
-│   └── models/                         dbt integration
+│   ├── catalog/
+│   │   └── rest_server.py     Iceberg REST catalog (port 8181)
+│   ├── flows/                 Prefect workflows
+│   └── ingestion/             Data fetching and loading
 ├── config/
-│   └── storage.yaml                    Multi-cloud config
+│   └── storage.yaml           Multi-cloud storage config
+├── scripts/                   Helper scripts
+├── examples/                  Demo scripts
 ├── docs/
-│   ├── README.md                       User guide
-│   └── CLAUDE.md                       Technical deep-dive
-└── pyproject.toml                      Dependencies
+│   └── CLAUDE.md              Technical deep-dive
+└── pyproject.toml
 ```
 
 ## Installation
@@ -135,45 +125,36 @@ poetry install
 poetry run streamlit run app.py
 ```
 
-Then open: **http://localhost:8501**
-
 ## Optional Services
 
-### View dbt Lineage Documentation
+### Prefect Orchestration
 
 ```bash
-cd dbt
-dbt docs serve
+poetry run prefect server start  # http://localhost:4200
 ```
 
-Opens: **http://localhost:8000**
-
-### Access Prefect Orchestration
+### dbt Documentation
 
 ```bash
-poetry run prefect server start
+cd dbt && dbt docs serve         # http://localhost:8000
 ```
-
-Opens: **http://localhost:4200**
 
 ### Query Data Directly
 
 ```bash
 poetry run duckdb weather.duckdb
-
 > SELECT * FROM main_marts.fact_observations LIMIT 5;
-> SELECT COUNT(*) FROM main_marts.fact_daily_weather;
 ```
 
 ## Configuration
 
-Edit `config/storage.yaml` for storage backends:
+Edit `config/storage.yaml` to switch storage backends:
 
 ```yaml
 storage:
   backend: local              # or: s3, azure, gcs
 
-table_format: iceberg         # Apache Iceberg format
+table_format: iceberg
 
 iceberg:
   catalog:
@@ -181,65 +162,25 @@ iceberg:
     uri: http://localhost:8181
 ```
 
-## Transformations
-
-### dbt Models
-
-**Staging Layer:**
-- `stg_observations` - Cleaned weather data with unit conversions (°F→°C, mph→m/s)
-
-**Marts Layer:**
-- `fact_observations` - 140 enriched observations with temporal attributes
-- `fact_daily_weather` - 40 daily aggregates by station
-- `dim_stations` - 5 station dimension table
-- `extreme_weather_events` - 56 anomalies detected via Z-score
-
-All models passing: **PASS=5**
-
-## Data Quality
-
-- **NULL Checks**: 100% non-NULL for critical fields
-- **Uniqueness**: 5 unique stations, 8 unique dates, 4 weather conditions
-- **Range**: Temperature -5°C to 75°C (within expected weather range)
-- **Aggregation**: Daily summaries correctly calculate avg/min/max
-- **Anomaly Detection**: Z-score analysis identifies 56 extreme weather events
-
 ## Technology Stack
 
 | Layer | Technology | Version |
 |-------|-----------|---------|
-| **Data Storage** | DuckDB + Apache Iceberg | 1.4.2+ |
-| **Transformation** | dbt | 1.10+ |
-| **Visualization** | Streamlit + Plotly | 1.53+ / 6.5+ |
-| **Orchestration** | Prefect | 3.6+ |
-| **Language** | Python | 3.10+ |
-| **Dependency Mgmt** | Poetry | Latest |
+| Data Storage | DuckDB + Apache Iceberg | 1.4.2+ |
+| Transformation | dbt | 1.10+ |
+| Visualization | Streamlit + Plotly | 1.53+ / 6.5+ |
+| Orchestration | Prefect | 3.6+ |
+| Language | Python | 3.10+ |
+| Dependency Mgmt | Poetry | Latest |
 
 ## Learn More
 
-See **[CLAUDE.md](docs/CLAUDE.md)** for:
-- Deep-dive into Apache Iceberg architecture
-- REST catalog implementation details
-- DuckDB + Iceberg integration
-- Prefect orchestration setup
-- GitHub Actions CI/CD
-- Production deployment guide
-- Advanced features & troubleshooting
-
-## Built With
-
-- Real weather data from National Weather Service API
-- DuckDB for OLAP analytics
-- Apache Iceberg for reliable data lake
-- dbt for data transformations
-- Streamlit for interactive visualization
-- Prefect for workflow orchestration
-- Poetry for dependency management
+See **[docs/CLAUDE.md](docs/CLAUDE.md)** for Iceberg architecture deep-dive, REST catalog internals, Prefect setup, CI/CD, and production deployment.
 
 ## License
 
-MIT License - Open source and free to use
+MIT License
 
 ---
 
-**Start exploring**: `poetry run streamlit run app.py` → http://localhost:8501
+`poetry run streamlit run app.py` → http://localhost:8501

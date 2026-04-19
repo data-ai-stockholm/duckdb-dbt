@@ -3,7 +3,7 @@ name = "duckdb-dbt"
 version = "0.2.0"
 description = "Production weather data pipeline with DuckDB, dbt, Apache Iceberg, and Polaris REST catalog"
 authors = ["Chanukya Pekala <chanukya.pekala@gmail.com>"]
-readme = "docs/README.md"
+readme = "README.md"
 license = "MIT"
 packages = [{include = "src"}]
 
