@@ -1,0 +1,70 @@
+# Prefect deployment configuration
+
+# Pull step to get the latest code
+pull:
+  - prefect.deployments.steps.git_clone:
+      repository: https://github.com/YOUR_USERNAME/duckdb-dbt.git
+      branch: main
+
+# Build step (optional, for containerized deployments)
+build: null
+
+# Push step (optional, for container registries)
+push: null
+
+# Deployments
+deployments:
+  # Weather ingestion deployment - runs every hour
+  - name: weather-ingestion-hourly
+    version: 1.0.0
+    tags:
+      - weather
+      - ingestion
+      - production
+    description: |
+      Hourly weather data ingestion from National Weather Service API.
+      Fetches station metadata and latest observations, loads into Iceberg tables.
+    entrypoint: src/flows/weather_ingestion.py:weather_ingestion_flow
+    work_pool:
+      name: default-agent-pool
+    schedules:
+      - cron: "0 * * * *"  # Every hour at minute 0
+        timezone: "America/New_York"
+    parameters: {}
+
+  # dbt transformations deployment - runs every 6 hours
+  - name: dbt-transformations-6hourly
+    version: 1.0.0
+    tags:
+      - dbt
+      - transformations
+      - production
+    description: |
+      Run dbt transformations on weather data every 6 hours.
+      Includes model runs, tests, and documentation generation.
+    entrypoint: src/flows/dbt_transformations.py:dbt_transformations_flow
+    work_pool:
+      name: default-agent-pool
+    schedules:
+      - cron: "0 */6 * * *"  # Every 6 hours
+        timezone: "America/New_York"
+    parameters:
+      profiles_dir: "."
+
+  # Full pipeline deployment - runs daily
+  - name: weather-pipeline-daily
+    version: 1.0.0
+    tags:
+      - weather
+      - pipeline
+      - production
+    description: |
+      Complete end-to-end weather data pipeline.
+      Runs data ingestion followed by dbt transformations.
+    entrypoint: src/flows/main_pipeline.py:main_pipeline_flow
+    work_pool:
+      name: default-agent-pool
+    schedules:
+      - cron: "0 6 * * *"  # Daily at 6 AM
+        timezone: "America/New_York"
+    parameters: {}

@@ -1,0 +1,43 @@
+name: dbt CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'dbt/**'
+      - 'config/**'
+
+jobs:
+  dbt-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: 2.1.0
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+
+      - name: dbt debug
+        run: poetry run dbt debug --project-dir dbt --profiles-dir dbt
+
+      - name: dbt deps
+        run: poetry run dbt deps --project-dir dbt --profiles-dir dbt
+        continue-on-error: true
+
+      - name: dbt compile
+        run: poetry run dbt compile --project-dir dbt --profiles-dir dbt
+
+      - name: dbt parse
+        run: poetry run dbt parse --project-dir dbt --profiles-dir dbt

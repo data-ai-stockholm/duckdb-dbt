@@ -1,0 +1,39 @@
+name: 'weather'
+version: '1.0.0'
+config-version: 2
+
+profile: 'weather'
+
+# Paths
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# Model configurations
+models:
+  weather:
+    # Staging models
+    staging:
+      +materialized: view
+      +schema: staging
+
+    # Mart models
+    marts:
+      +materialized: table
+      +schema: marts
+
+# Documentation
+docs-paths: ["docs"]
+
+# Vars
+vars:
+  # Default to local development
+  data_source: observations

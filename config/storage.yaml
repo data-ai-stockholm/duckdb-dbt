@@ -1,0 +1,75 @@
+# Configuration for the weather data pipeline
+
+# Storage backend: 'local', 's3', 'azure', 'gcs'
+storage:
+  backend: local
+
+  # Local storage configuration
+  local:
+    data_dir: ingestion_data
+    database_path: weather_reports.db
+
+  # S3 configuration (AWS, MinIO, etc.)
+  s3:
+    bucket: weather-data-pipeline
+    prefix: data/
+    region: us-east-1
+    endpoint_url: null  # For MinIO or S3-compatible storage
+    warehouse_path: s3://weather-data-pipeline/warehouse/
+
+  # Azure Blob Storage configuration
+  azure:
+    storage_account: your-storage-account
+    container: weather-data
+    prefix: data/
+    warehouse_path: az://weather-data/warehouse/
+
+  # Google Cloud Storage configuration
+  gcs:
+    bucket: weather-data-pipeline
+    prefix: data/
+    project: your-gcp-project
+    warehouse_path: gs://weather-data-pipeline/warehouse/
+
+# Table format: 'duckdb' (native) or 'iceberg'
+table_format: iceberg
+
+# Iceberg catalog configuration
+iceberg:
+  catalog:
+    # Choose one of: 'local', 'sql', or 'rest'
+    # REST: Use with Polaris, Nessie, or other REST catalog services (production recommended)
+    type: rest
+    uri: http://localhost:8181  # Set via ICEBERG_REST_URI environment variable
+    warehouse: warehouse/         # Set via ICEBERG_WAREHOUSE environment variable
+
+    # Alternative: Local filesystem catalog (direct access, no catalog service)
+    # type: local
+    # warehouse: warehouse/
+
+    # Alternative: SQL catalog (SQLite, PostgreSQL, etc.)
+    # type: sql
+    # sql_uri: sqlite:///warehouse/catalog.db
+
+  # Namespace/database
+  namespace: weather_data
+
+  # Table properties
+  table_properties:
+    write.format.default: parquet
+    write.parquet.compression-codec: snappy
+    write.metadata.compression-codec: gzip
+
+# API configuration
+api:
+  base_url: https://api.weather.gov
+  rate_limit_delay: 0.1  # seconds between requests
+  timeout: 30
+  retry_attempts: 3
+
+# Processing configuration
+processing:
+  batch_size: 1000
+  max_workers: 4
+  checkpoint_enabled: true
+  checkpoint_interval: 100  # Save checkpoint every N stations

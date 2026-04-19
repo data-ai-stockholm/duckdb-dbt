@@ -1,0 +1,73 @@
+weather:
+  target: dev
+  outputs:
+    # Local development with native DuckDB tables
+    dev:
+      type: duckdb
+      path: "../weather.duckdb"
+      threads: 4
+      extensions:
+        - httpfs
+        - iceberg
+
+    # Local development with Iceberg tables
+    dev_iceberg:
+      type: duckdb
+      path: "../weather.duckdb"
+      threads: 4
+      extensions:
+        - httpfs
+        - iceberg
+
+    # S3-based deployment with Iceberg
+    prod_s3:
+      type: duckdb
+      path: ":memory:"
+      threads: 8
+      extensions:
+        - httpfs
+        - iceberg
+      settings:
+        s3_region: "{{ env_var('AWS_DEFAULT_REGION', 'us-east-1') }}"
+        s3_access_key_id: "{{ env_var('AWS_ACCESS_KEY_ID') }}"
+        s3_secret_access_key: "{{ env_var('AWS_SECRET_ACCESS_KEY') }}"
+      attach:
+        - type: iceberg
+          name: iceberg_catalog
+          catalog_type: rest
+          uri: "{{ env_var('ICEBERG_REST_URI') }}"
+          path: "{{ env_var('ICEBERG_WAREHOUSE') }}"
+
+    # Azure-based deployment with Iceberg
+    prod_azure:
+      type: duckdb
+      path: ":memory:"
+      threads: 8
+      extensions:
+        - azure
+        - iceberg
+      settings:
+        azure_storage_connection_string: "{{ env_var('AZURE_STORAGE_CONNECTION_STRING') }}"
+      attach:
+        - type: iceberg
+          name: iceberg_catalog
+          catalog_type: rest
+          uri: "{{ env_var('ICEBERG_REST_URI') }}"
+          path: "{{ env_var('ICEBERG_WAREHOUSE') }}"
+
+    # GCS-based deployment with Iceberg
+    prod_gcs:
+      type: duckdb
+      path: ":memory:"
+      threads: 8
+      extensions:
+        - httpfs
+        - iceberg
+      settings:
+        gcs_credentials: "{{ env_var('GOOGLE_APPLICATION_CREDENTIALS') }}"
+      attach:
+        - type: iceberg
+          name: iceberg_catalog
+          catalog_type: rest
+          uri: "{{ env_var('ICEBERG_REST_URI') }}"
+          path: "{{ env_var('ICEBERG_WAREHOUSE') }}"

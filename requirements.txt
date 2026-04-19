@@ -1,5 +1,0 @@
-duckdb==1.4.1
-pandas
-requests
-dbt-duckdb
-streamlit
