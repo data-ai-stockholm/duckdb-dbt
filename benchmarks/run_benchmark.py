@@ -237,11 +237,11 @@ def run_benchmarks(
         }
 
         # Print results
-        print(f"{query_name:<25} {'Parquet':<10} {parquet_stats['median']:<14.2f} {parquet_stats['mean']:<12.2f} {parquet_stats['p95']:<12.2f} {parquet_stats['stddev']:<10.2f}")
-        print(f"{'':<25} {'Iceberg':<10} {iceberg_stats['median']:<14.2f} {iceberg_stats['mean']:<12.2f} {iceberg_stats['p95']:<12.2f} {iceberg_stats['stddev']:<10.2f}")
         overhead = results[query_name]["overhead_pct"]
-        indicator = "+" if overhead > 0 else ""
-        print(f"{'':<25} {'Δ':<10} {indicator}{overhead}%")
+        for fmt, stats in [("Parquet", parquet_stats), ("Iceberg", iceberg_stats)]:
+            label = query_name if fmt == "Parquet" else ""
+            print(f"{label:<25} {fmt:<10} {stats['median']:<14.2f} {stats['mean']:<12.2f} {stats['p95']:<12.2f} {stats['stddev']:<10.2f}")
+        print(f"{'':<25} {'Δ':<10} {'+' if overhead > 0 else ''}{overhead}%")
         print(f"{'-' * 80}")
 
     parquet_conn.close()
@@ -334,15 +334,13 @@ def main():
     if args.output:
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        # Remove raw_times for cleaner JSON
-        clean_results = {}
-        for k, v in results.items():
-            clean_results[k] = {
-                "description": v["description"],
-                "parquet": {kk: vv for kk, vv in v["parquet"].items() if kk != "raw_times"},
-                "iceberg": {kk: vv for kk, vv in v["iceberg"].items() if kk != "raw_times"},
-                "overhead_pct": v["overhead_pct"],
-            }
+        clean_results = {
+            k: {key: val for key, val in v.items()
+                 if key not in ("parquet", "iceberg") or not isinstance(val, dict)}
+            | {fmt: {kk: vv for kk, vv in v[fmt].items() if kk != "raw_times"}
+               for fmt in ("parquet", "iceberg")}
+            for k, v in results.items()
+        }
         with open(output_path, "w") as f:
             json.dump(clean_results, f, indent=2)
         print(f"Results saved to {output_path}")

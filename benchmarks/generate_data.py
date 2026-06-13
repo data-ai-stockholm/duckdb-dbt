@@ -1,7 +1,7 @@
 """Generate synthetic weather observation data at configurable scale.
 
 Produces realistic weather patterns with seasonal variation, station-specific
-characteristics, and correlated measurements (temperature ↔ humidity, etc.).
+characteristics, and correlated measurements (temperature <-> humidity, etc.).
 """
 
 import argparse
@@ -35,109 +35,91 @@ STATIONS = [
      "base_temp": 11.0, "temp_range": 15.0},
 ]
 
+# Column definitions: (name, duckdb_type, arrow_type_key)
+# arrow_type_key: "ts" for timestamp, "f64" for float64, "str" for string
+COLUMNS = [
+    ("observation_timestamp", "TIMESTAMPTZ", "ts"),
+    ("observation_id", "VARCHAR", "str"),
+    ("observation_type", "VARCHAR", "str"),
+    ("geometry_type", "VARCHAR", "str"),
+    ("geometry_coordinates", "VARCHAR", "str"),
+    ("elevation_m", "DOUBLE", "f64"),
+    ("station_id", "VARCHAR", "str"),
+    ("station_name", "VARCHAR", "str"),
+    ("temperature_degC", "DOUBLE", "f64"),
+    ("dewpoint_degC", "DOUBLE", "f64"),
+    ("wind_direction_deg", "DOUBLE", "f64"),
+    ("wind_speed_kmh", "DOUBLE", "f64"),
+    ("wind_gust_kmh", "DOUBLE", "f64"),
+    ("barometric_pressure_Pa", "DOUBLE", "f64"),
+    ("sea_level_pressure_Pa", "DOUBLE", "f64"),
+    ("visibility_m", "DOUBLE", "f64"),
+    ("max_temp_24h_degC", "DOUBLE", "f64"),
+    ("min_temp_24h_degC", "DOUBLE", "f64"),
+    ("precipitation_3h_mm", "DOUBLE", "f64"),
+    ("relative_humidity_percent", "DOUBLE", "f64"),
+    ("wind_chill_degC", "DOUBLE", "f64"),
+    ("heat_index_degC", "DOUBLE", "f64"),
+]
 
-def generate_observations(num_rows: int, seed: int = 42) -> np.ndarray:
-    """Generate synthetic weather observations with realistic distributions.
+COL_NAMES = [c[0] for c in COLUMNS]
 
-    Args:
-        num_rows: Total number of observation rows to generate.
-        seed: Random seed for reproducibility.
 
-    Returns:
-        Structured numpy array with observation data.
-    """
+def generate_observations(num_rows: int, seed: int = 42) -> list:
+    """Generate synthetic weather observations with realistic distributions."""
     rng = np.random.default_rng(seed)
 
-    # Distribute rows across stations (roughly equal, some variation)
+    # Distribute rows across stations
     station_weights = rng.dirichlet(np.ones(len(STATIONS)) * 5)
     station_counts = (station_weights * num_rows).astype(int)
-    station_counts[-1] = num_rows - station_counts[:-1].sum()  # fix rounding
+    station_counts[-1] = num_rows - station_counts[:-1].sum()
 
-    # Generate timestamps spanning 2 years of hourly observations
     hours_span = num_rows // len(STATIONS)
     base_ts = np.datetime64("2023-01-01T00:00")
-
     all_data = []
 
-    for i, (station, count) in enumerate(zip(STATIONS, station_counts)):
-        # Timestamps with some jitter (not perfectly hourly)
+    for station, count in zip(STATIONS, station_counts):
         offsets = np.sort(rng.choice(hours_span * 2, size=count, replace=False))
         timestamps = base_ts + offsets.astype("timedelta64[h]")
-
-        # Hour of day for diurnal cycle
         hour_of_day = (offsets % 24).astype(float)
-        # Day of year for seasonal cycle
         day_of_year = ((offsets // 24) % 365).astype(float)
 
         # Temperature: seasonal + diurnal + noise
         seasonal = station["temp_range"] * np.sin(2 * np.pi * (day_of_year - 80) / 365)
         diurnal = 3.0 * np.sin(2 * np.pi * (hour_of_day - 6) / 24)
-        noise = rng.normal(0, 2.5, count)
-        temperature = station["base_temp"] + seasonal + diurnal + noise
+        temperature = station["base_temp"] + seasonal + diurnal + rng.normal(0, 2.5, count)
 
-        # Humidity: inversely correlated with temperature
-        base_humidity = 65 - 0.8 * (temperature - station["base_temp"])
-        humidity = np.clip(base_humidity + rng.normal(0, 10, count), 10, 100)
-
-        # Wind speed: log-normal distribution
-        wind_speed = rng.lognormal(mean=2.0, sigma=0.6, size=count)
-        wind_speed = np.clip(wind_speed, 0, 80)
-
-        # Wind direction: clustered around prevailing direction with spread
-        prevailing = rng.uniform(0, 360)
-        wind_direction = (prevailing + rng.vonmises(0, 2, count) * 180 / np.pi) % 360
-
-        # Wind gust: wind_speed * multiplier (sometimes None)
-        gust_mask = rng.random(count) < 0.3  # 30% have gusts
-        wind_gust = np.where(gust_mask, wind_speed * rng.uniform(1.3, 2.5, count), np.nan)
-
-        # Pressure: normal distribution around sea level, adjusted for elevation
-        elevation_correction = station["elev"] * 0.12  # ~0.12 hPa per meter
+        # Correlated measurements
+        humidity = np.clip(65 - 0.8 * (temperature - station["base_temp"]) + rng.normal(0, 10, count), 10, 100)
+        wind_speed = np.clip(rng.lognormal(2.0, 0.6, count), 0, 80)
+        wind_direction = (rng.uniform(0, 360) + rng.vonmises(0, 2, count) * 180 / np.pi) % 360
+        wind_gust = np.where(rng.random(count) < 0.3, wind_speed * rng.uniform(1.3, 2.5, count), np.nan)
+        elevation_correction = station["elev"] * 0.12
         pressure = rng.normal(101325 - elevation_correction * 100, 800, count)
-
-        # Sea level pressure
         sea_level_pressure = pressure + elevation_correction * 100
-
-        # Visibility: usually good, sometimes poor (bimodal)
-        visibility = np.where(
-            rng.random(count) < 0.1,
-            rng.uniform(100, 3000, count),    # poor visibility 10%
-            rng.uniform(8000, 16000, count),  # good visibility 90%
-        )
-
-        # Dewpoint: derived from temperature and humidity
-        # Magnus formula approximation
+        visibility = np.where(rng.random(count) < 0.1, rng.uniform(100, 3000, count), rng.uniform(8000, 16000, count))
         dewpoint = temperature - ((100 - humidity) / 5)
+        precipitation = np.where(rng.random(count) < 0.15, rng.exponential(3.0, count), 0.0)
 
-        # Precipitation (3h): mostly zero, occasionally some
-        precip_mask = rng.random(count) < 0.15
-        precipitation = np.where(precip_mask, rng.exponential(3.0, count), 0.0)
-
-        # Build records for this station
         for j in range(count):
             all_data.append((
                 str(timestamps[j]),
                 f"obs-{station['id']}-{j:08d}",
-                "wx:ObservationStation",
-                "Point",
+                "wx:ObservationStation", "Point",
                 f"[{station['lon']}, {station['lat']}]",
-                station["elev"],
-                station["id"],
-                station["name"],
+                station["elev"], station["id"], station["name"],
                 round(float(temperature[j]), 2),
                 round(float(dewpoint[j]), 2),
                 round(float(wind_direction[j]), 1),
-                round(float(wind_speed[j]) * 3.6, 2),  # m/s to km/h
+                round(float(wind_speed[j]) * 3.6, 2),
                 round(float(wind_gust[j]) * 3.6, 2) if not np.isnan(wind_gust[j]) else None,
                 round(float(pressure[j]), 1),
                 round(float(sea_level_pressure[j]), 1),
                 round(float(visibility[j]), 0),
-                None,  # max_temp_24h
-                None,  # min_temp_24h
+                None, None,  # max/min temp 24h
                 round(float(precipitation[j]), 2) if precipitation[j] > 0 else None,
                 round(float(humidity[j]), 1),
-                None,  # wind_chill
-                None,  # heat_index
+                None, None,  # wind_chill, heat_index
             ))
 
     return all_data
@@ -146,231 +128,110 @@ def generate_observations(num_rows: int, seed: int = 42) -> np.ndarray:
 def write_parquet(data: list, output_path: Path) -> None:
     """Write generated data directly to Parquet using DuckDB."""
     conn = duckdb.connect()
+    schema_sql = ", ".join(f"{name} {dtype}" for name, dtype, _ in COLUMNS)
+    conn.execute(f"CREATE TABLE observations ({schema_sql})")
 
-    conn.execute("""
-        CREATE TABLE observations (
-            observation_timestamp TIMESTAMPTZ,
-            observation_id VARCHAR,
-            observation_type VARCHAR,
-            geometry_type VARCHAR,
-            geometry_coordinates VARCHAR,
-            elevation_m DOUBLE,
-            station_id VARCHAR,
-            station_name VARCHAR,
-            temperature_degC DOUBLE,
-            dewpoint_degC DOUBLE,
-            wind_direction_deg DOUBLE,
-            wind_speed_kmh DOUBLE,
-            wind_gust_kmh DOUBLE,
-            barometric_pressure_Pa DOUBLE,
-            sea_level_pressure_Pa DOUBLE,
-            visibility_m DOUBLE,
-            max_temp_24h_degC DOUBLE,
-            min_temp_24h_degC DOUBLE,
-            precipitation_3h_mm DOUBLE,
-            relative_humidity_percent DOUBLE,
-            wind_chill_degC DOUBLE,
-            heat_index_degC DOUBLE
-        )
-    """)
-
-    # Insert in batches for memory efficiency
+    placeholders = ",".join(["?"] * len(COLUMNS))
     batch_size = 50_000
     for i in range(0, len(data), batch_size):
-        batch = data[i:i + batch_size]
-        conn.executemany("INSERT INTO observations VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", batch)
+        conn.executemany(f"INSERT INTO observations VALUES ({placeholders})", data[i:i + batch_size])
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     conn.execute(f"COPY observations TO '{output_path}' (FORMAT PARQUET, COMPRESSION SNAPPY)")
-
     count = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
     conn.close()
     print(f"  Written {count:,} rows to {output_path}")
 
 
 def write_iceberg(data: list, warehouse_path: Path) -> None:
-    """Write generated data to Iceberg table using PyIceberg + Parquet files.
-
-    Creates a proper Iceberg table with metadata that DuckDB can read via iceberg_scan.
-    """
+    """Write generated data to Iceberg table using PyIceberg."""
+    import pandas as pd
     import pyarrow as pa
     from pyiceberg.catalog.sql import SqlCatalog
     from pyiceberg.schema import Schema
-    from pyiceberg.types import (
-        DoubleType,
-        NestedField,
-        StringType,
-        TimestamptzType,
-    )
+    from pyiceberg.types import DoubleType, NestedField, StringType, TimestamptzType
 
     warehouse_path.mkdir(parents=True, exist_ok=True)
-    catalog_db = warehouse_path / "catalog.db"
 
-    # Create a SQL catalog backed by SQLite (local, no REST server needed)
     catalog = SqlCatalog(
         "benchmark",
-        **{
-            "uri": f"sqlite:///{catalog_db}",
-            "warehouse": str(warehouse_path),
-        },
+        **{"uri": f"sqlite:///{warehouse_path / 'catalog.db'}", "warehouse": str(warehouse_path)},
     )
 
-    # Create namespace
     try:
         catalog.create_namespace("benchmark")
     except Exception:
-        pass  # Already exists
+        pass
 
-    # Define Iceberg schema
-    iceberg_schema = Schema(
-        NestedField(1, "observation_timestamp", TimestamptzType(), required=False),
-        NestedField(2, "observation_id", StringType(), required=False),
-        NestedField(3, "observation_type", StringType(), required=False),
-        NestedField(4, "geometry_type", StringType(), required=False),
-        NestedField(5, "geometry_coordinates", StringType(), required=False),
-        NestedField(6, "elevation_m", DoubleType(), required=False),
-        NestedField(7, "station_id", StringType(), required=False),
-        NestedField(8, "station_name", StringType(), required=False),
-        NestedField(9, "temperature_degC", DoubleType(), required=False),
-        NestedField(10, "dewpoint_degC", DoubleType(), required=False),
-        NestedField(11, "wind_direction_deg", DoubleType(), required=False),
-        NestedField(12, "wind_speed_kmh", DoubleType(), required=False),
-        NestedField(13, "wind_gust_kmh", DoubleType(), required=False),
-        NestedField(14, "barometric_pressure_Pa", DoubleType(), required=False),
-        NestedField(15, "sea_level_pressure_Pa", DoubleType(), required=False),
-        NestedField(16, "visibility_m", DoubleType(), required=False),
-        NestedField(17, "max_temp_24h_degC", DoubleType(), required=False),
-        NestedField(18, "min_temp_24h_degC", DoubleType(), required=False),
-        NestedField(19, "precipitation_3h_mm", DoubleType(), required=False),
-        NestedField(20, "relative_humidity_percent", DoubleType(), required=False),
-        NestedField(21, "wind_chill_degC", DoubleType(), required=False),
-        NestedField(22, "heat_index_degC", DoubleType(), required=False),
-    )
+    # Build Iceberg schema from COLUMNS definition
+    _iceberg_types = {"ts": TimestamptzType(), "f64": DoubleType(), "str": StringType()}
+    iceberg_schema = Schema(*[
+        NestedField(i + 1, name, _iceberg_types[atype], required=False)
+        for i, (name, _, atype) in enumerate(COLUMNS)
+    ])
 
-    # Create or replace table
     try:
         catalog.drop_table("benchmark.observations")
     except Exception:
         pass
     table = catalog.create_table("benchmark.observations", schema=iceberg_schema)
 
-    # Convert data to PyArrow table
-    columns = [
-        "observation_timestamp", "observation_id", "observation_type",
-        "geometry_type", "geometry_coordinates", "elevation_m",
-        "station_id", "station_name", "temperature_degC", "dewpoint_degC",
-        "wind_direction_deg", "wind_speed_kmh", "wind_gust_kmh",
-        "barometric_pressure_Pa", "sea_level_pressure_Pa", "visibility_m",
-        "max_temp_24h_degC", "min_temp_24h_degC", "precipitation_3h_mm",
-        "relative_humidity_percent", "wind_chill_degC", "heat_index_degC",
-    ]
-
-    # Build columnar data from row-based data
-    col_data = {col: [] for col in columns}
+    # Build PyArrow table from row data
+    col_data = {name: [] for name, _, _ in COLUMNS}
     for row in data:
-        for i, col in enumerate(columns):
-            col_data[col].append(row[i])
+        for i, (name, _, _) in enumerate(COLUMNS):
+            col_data[name].append(row[i])
 
-    # Parse timestamps
-    import pandas as pd
-    timestamps = pd.to_datetime(col_data["observation_timestamp"], utc=True)
+    _arrow_types = {"ts": pa.timestamp("us", tz="UTC"), "f64": pa.float64(), "str": pa.string()}
+    timestamps = pd.to_datetime(col_data[COL_NAMES[0]], utc=True)
 
-    arrow_schema = pa.schema([
-        ("observation_timestamp", pa.timestamp("us", tz="UTC")),
-        ("observation_id", pa.string()),
-        ("observation_type", pa.string()),
-        ("geometry_type", pa.string()),
-        ("geometry_coordinates", pa.string()),
-        ("elevation_m", pa.float64()),
-        ("station_id", pa.string()),
-        ("station_name", pa.string()),
-        ("temperature_degC", pa.float64()),
-        ("dewpoint_degC", pa.float64()),
-        ("wind_direction_deg", pa.float64()),
-        ("wind_speed_kmh", pa.float64()),
-        ("wind_gust_kmh", pa.float64()),
-        ("barometric_pressure_Pa", pa.float64()),
-        ("sea_level_pressure_Pa", pa.float64()),
-        ("visibility_m", pa.float64()),
-        ("max_temp_24h_degC", pa.float64()),
-        ("min_temp_24h_degC", pa.float64()),
-        ("precipitation_3h_mm", pa.float64()),
-        ("relative_humidity_percent", pa.float64()),
-        ("wind_chill_degC", pa.float64()),
-        ("heat_index_degC", pa.float64()),
-    ])
-
-    arrow_arrays = [
-        pa.array(timestamps.values, type=pa.timestamp("us", tz="UTC")),
+    arrow_arrays = [pa.array(timestamps.values, type=pa.timestamp("us", tz="UTC"))]
+    arrow_arrays += [
+        pa.array(col_data[name], type=_arrow_types[atype])
+        for name, _, atype in COLUMNS[1:]
     ]
-    for col in columns[1:]:
-        if col.endswith(("_m", "_degC", "_deg", "_kmh", "_Pa", "_mm", "_percent")):
-            arrow_arrays.append(pa.array(col_data[col], type=pa.float64()))
-        else:
-            arrow_arrays.append(pa.array(col_data[col], type=pa.string()))
-
+    arrow_schema = pa.schema([(name, _arrow_types[atype]) for name, _, atype in COLUMNS])
     arrow_table = pa.table(arrow_arrays, schema=arrow_schema)
 
-    # Write to Iceberg table
     table.append(arrow_table)
 
-    # Write version-hint.text so DuckDB iceberg_scan can find the latest metadata
+    # Create version-hint and DuckDB-compatible symlink
     table_location = table.location()
     metadata_dir = Path(table_location.replace("file://", "")) / "metadata"
     if not metadata_dir.exists():
-        # PyIceberg may use a relative path
         metadata_dir = warehouse_path / "benchmark" / "observations" / "metadata"
 
     metadata_files = sorted(metadata_dir.glob("*.metadata.json"))
     if metadata_files:
-        latest_version = metadata_files[-1].stem.split("-")[0]  # e.g. "00001"
-        version_int = int(latest_version) + 1
-        version_hint = metadata_dir / "version-hint.text"
-        version_hint.write_text(str(version_int))
+        version_int = int(metadata_files[-1].stem.split("-")[0]) + 1
+        (metadata_dir / "version-hint.text").write_text(str(version_int))
+        # DuckDB expects v{N}.metadata.json but PyIceberg uses {N}-{uuid}.metadata.json
+        symlink = metadata_dir / f"v{version_int}.metadata.json"
+        if symlink.exists():
+            symlink.unlink()
+        symlink.symlink_to(metadata_files[-1].name)
 
-        # Create v{N}.metadata.json symlink for DuckDB iceberg_scan compatibility
-        # DuckDB expects v{version}.metadata.json but PyIceberg uses {N}-{uuid}.metadata.json
-        symlink_name = metadata_dir / f"v{version_int}.metadata.json"
-        if symlink_name.exists():
-            symlink_name.unlink()
-        symlink_name.symlink_to(metadata_files[-1].name)
-
-    # Verify
-    scan = table.scan()
-    count = scan.to_arrow().num_rows
+    count = table.scan().to_arrow().num_rows
     print(f"  Written {count:,} rows to Iceberg at {warehouse_path}")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Generate synthetic weather data for benchmarking")
-    parser.add_argument(
-        "--rows", type=int, default=1_000_000,
-        help="Number of rows to generate (default: 1,000,000)",
-    )
-    parser.add_argument(
-        "--output-dir", type=str, default="benchmarks/data",
-        help="Output directory for generated data",
-    )
-    parser.add_argument(
-        "--seed", type=int, default=42,
-        help="Random seed for reproducibility",
-    )
+    parser.add_argument("--rows", type=int, default=1_000_000, help="Number of rows (default: 1M)")
+    parser.add_argument("--output-dir", type=str, default="benchmarks/data", help="Output directory")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
     print(f"\nGenerating {args.rows:,} synthetic weather observations...")
-    print(f"  Stations: {len(STATIONS)}")
-    print(f"  Seed: {args.seed}")
-    print()
+    print(f"  Stations: {len(STATIONS)}, Seed: {args.seed}\n")
 
     data = generate_observations(args.rows, seed=args.seed)
     print(f"  Generated {len(data):,} records in memory\n")
 
-    # Write Parquet format
     print("Writing Parquet format...")
     write_parquet(data, output_dir / "observations.parquet")
 
-    # Write Iceberg format
     print("\nWriting Iceberg format...")
     write_iceberg(data, output_dir / "iceberg_warehouse")
 
