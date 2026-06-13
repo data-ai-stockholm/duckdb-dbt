@@ -324,8 +324,16 @@ def write_iceberg(data: list, warehouse_path: Path) -> None:
     metadata_files = sorted(metadata_dir.glob("*.metadata.json"))
     if metadata_files:
         latest_version = metadata_files[-1].stem.split("-")[0]  # e.g. "00001"
+        version_int = int(latest_version) + 1
         version_hint = metadata_dir / "version-hint.text"
-        version_hint.write_text(str(int(latest_version) + 1))
+        version_hint.write_text(str(version_int))
+
+        # Create v{N}.metadata.json symlink for DuckDB iceberg_scan compatibility
+        # DuckDB expects v{version}.metadata.json but PyIceberg uses {N}-{uuid}.metadata.json
+        symlink_name = metadata_dir / f"v{version_int}.metadata.json"
+        if symlink_name.exists():
+            symlink_name.unlink()
+        symlink_name.symlink_to(metadata_files[-1].name)
 
     # Verify
     scan = table.scan()
