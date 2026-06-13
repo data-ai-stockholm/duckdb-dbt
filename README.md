@@ -111,6 +111,9 @@ duckdb-dbt/
 │   └── ingestion/             Data fetching and loading
 ├── config/
 │   └── storage.yaml           Multi-cloud storage config
+├── benchmarks/
+│   ├── generate_data.py       Synthetic data generator (1M+ rows)
+│   └── run_benchmark.py       Iceberg vs Parquet benchmark runner
 ├── scripts/                   Helper scripts
 ├── examples/                  Demo scripts
 ├── docs/
@@ -172,6 +175,38 @@ iceberg:
 | Orchestration | Prefect | 3.6+ |
 | Language | Python | 3.10+ |
 | Dependency Mgmt | Poetry | Latest |
+
+## Benchmarking: Iceberg vs Parquet
+
+Measures the overhead of Iceberg's metadata layer vs raw Parquet, using the same DuckDB engine for both.
+
+```bash
+# Generate 1M synthetic observations (both formats)
+poetry run python -m benchmarks.generate_data --rows 1000000
+
+# Run benchmarks (5 iterations + 1 warmup per query)
+poetry run python -m benchmarks.run_benchmark
+
+# Save results to JSON
+poetry run python -m benchmarks.run_benchmark --output benchmarks/results/latest.json
+```
+
+**Queries benchmarked** (mirror the dbt models):
+| Query | What it tests |
+|-------|--------------|
+| `full_scan` | Sequential read of all columns |
+| `count_star` | Metadata-only operation |
+| `filtered_scan` | Predicate pushdown (station + date range) |
+| `daily_aggregation` | GROUP BY with multiple aggregates |
+| `anomaly_detection` | CTE + JOIN + Z-score calculation |
+| `station_dimension` | Distinct + count aggregation |
+| `window_function` | Rolling average with PARTITION BY |
+| `multi_join_aggregation` | Percentiles + conditional aggregates |
+
+**What to expect:**
+- At 1M rows, Iceberg adds slight overhead (~5–15%) for scan-heavy queries due to metadata parsing
+- For filtered queries, Iceberg can match or beat Parquet when partition/file pruning kicks in
+- The fixed cost is the catalog metadata read; the variable cost scales with number of data files
 
 ## Learn More
 

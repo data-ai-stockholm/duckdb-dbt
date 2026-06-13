@@ -41,6 +41,9 @@ dbt/.user.yml
 .idea/
 .DS_Store
 
+# Generated images (architecture diagrams use mermaid in markdown)
+images/
+
 # Cache & Testing
 .pytest_cache/
 .mypy_cache/

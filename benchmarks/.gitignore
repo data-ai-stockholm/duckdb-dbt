@@ -1,0 +1,11 @@
+# Generated benchmark data (large files, regenerate with generate_data.py)
+data/
+data_test/
+results/
+
+# Python artifacts
+__pycache__/
+*.pyc
+
+# SQLite catalog files
+*.db
