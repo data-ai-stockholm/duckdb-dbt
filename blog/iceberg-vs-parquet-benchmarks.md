@@ -278,8 +278,6 @@ flowchart TD
         F --> J[extreme_weather_events\nZ-score anomaly detection]
     end
 
-    G & H & I & J --> K[Streamlit Dashboard\nPort 8501]
-
     L[Prefect Orchestration\nPort 4200] -.->|triggers| B
     L -.->|triggers| dbt
 

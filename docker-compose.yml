@@ -36,23 +36,3 @@ services:
     command: ["./transformation_service.sh"]
     stdin_open: true
     tty: true
-
-  visualization_service:
-    build:
-      context: .
-      dockerfile: visualization/Dockerfile
-    image: weather-visualize:latest
-    container_name: visualization_service
-    restart: unless-stopped
-    environment:
-      - PYTHONDONTWRITEBYTECODE=1
-      - PYTHONUNBUFFERED=1
-    volumes:
-      - ./visualization:/app/visualization
-      - ./transformation/weather_reports.db:/app/transformation/weather_reports.db:ro
-    working_dir: /app/visualization
-    ports:
-      - "8501:8501"
-    command: ["streamlit", "run", "visualization_service.py"]
-    stdin_open: true
-    tty: true
