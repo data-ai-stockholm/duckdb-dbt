@@ -4,19 +4,28 @@
 [![Poetry](https://img.shields.io/badge/dependency-poetry-purple)](https://python-poetry.org/)
 [![DuckDB](https://img.shields.io/badge/DuckDB-1.4.2+-yellow)](https://duckdb.org/)
 [![dbt](https://img.shields.io/badge/dbt-1.10+-orange)](https://www.getdbt.com/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.53+-red)](https://streamlit.io/)
 [![Apache Iceberg](https://img.shields.io/badge/Iceberg-REST-green)](https://iceberg.apache.org/)
 
-Production-ready data engineering project demonstrating **DuckDB**, **dbt**, **Apache Iceberg**, **Prefect orchestration**, and **Streamlit visualization** with a unified web UI.
+Production-ready data engineering project demonstrating **DuckDB**, **dbt**, **Apache Iceberg**, and **Prefect orchestration** with a custom REST catalog — powered by the National Weather Service API.
 
 ## Quick Start
 
 ```bash
 poetry install
-poetry run streamlit run app.py
-```
 
-Opens: **http://localhost:8501**
+# Start the Iceberg REST catalog
+poetry run catalog-server
+
+# Fetch stations + observations
+poetry run fetch-stations
+poetry run fetch-observations
+
+# Run dbt transformations
+cd dbt && dbt run
+
+# Run the full pipeline via Prefect
+python scripts/run_and_watch.py pipeline
+```
 
 ## Architecture
 
@@ -51,17 +60,6 @@ flowchart TD
 
     K -->|triggers| Ingestion
     K -->|triggers| Transformation
-
-    subgraph Visualization ["Visualization — app.py"]
-        L[Streamlit UI\nPort 8501]
-        L --> L1[Analytics Overview]
-        L --> L2[Trends & Analysis]
-        L --> L3[Pipeline Monitoring]
-        L --> L4[Data Quality]
-        L --> L5[Lineage Details]
-    end
-
-    G & H & I & J -->|DuckDB queries| L
 ```
 
 ## Data Flow
@@ -73,26 +71,21 @@ flowchart LR
     B -->|fact_daily_weather| D[40 Daily Aggregates]
     B -->|dim_stations| E[5 Stations]
     B -->|extreme_weather_events| F[56 Anomalies]
-    C & D & E & F --> G[Streamlit Dashboard]
 ```
 
 ## Features
 
-- **Real-time Analytics Dashboard** - Interactive visualizations with Plotly
-- **Pipeline Monitoring** - Architecture, record flow, status tracking
-- **Data Quality Metrics** - NULL checks, statistics, uniqueness validation
-- **Complete Lineage** - dbt model dependencies and documentation
-- **Apache Iceberg** - Production-grade table format with custom REST catalog
-- **DuckDB** - Native Iceberg support with v1.4.2+
-- **dbt** - 5 production models (staging + 4 marts)
-- **Prefect** - Workflow orchestration at http://localhost:4200
-- **Multi-Cloud** - S3, Azure Blob Storage, GCS support
+- **Apache Iceberg** — Production-grade table format with ACID transactions, time travel, and schema evolution
+- **Custom REST Catalog** — Implements the Iceberg REST spec (Flask + SQLite), no external catalog service needed
+- **DuckDB** — Native Iceberg support via `iceberg_scan()`, v1.4.2+
+- **dbt** — 5 production models: `stg_observations` → `fact_observations`, `fact_daily_weather`, `dim_stations`, `extreme_weather_events`
+- **Prefect** — Workflow orchestration with retries, caching, and task dependencies at http://localhost:4200
+- **Multi-Cloud** — S3, Azure Blob Storage, GCS support via `config/storage.yaml`
 
 ## Project Structure
 
 ```
 duckdb-dbt/
-├── app.py                     Unified Streamlit UI (5 pages)
 ├── dbt/
 │   ├── models/
 │   │   ├── staging/
@@ -108,7 +101,7 @@ duckdb-dbt/
 │   ├── catalog/
 │   │   └── rest_server.py     Iceberg REST catalog (port 8181)
 │   ├── flows/                 Prefect workflows
-│   └── ingestion/             Data fetching and loading
+│   └── ingestion/             Data fetching and Iceberg writes
 ├── config/
 │   └── storage.yaml           Multi-cloud storage config
 ├── benchmarks/
@@ -121,19 +114,13 @@ duckdb-dbt/
 └── pyproject.toml
 ```
 
-## Installation
-
-```bash
-poetry install
-poetry run streamlit run app.py
-```
-
 ## Optional Services
 
 ### Prefect Orchestration
 
 ```bash
 poetry run prefect server start  # http://localhost:4200
+python scripts/run_and_watch.py  # pick a flow to run
 ```
 
 ### dbt Documentation
@@ -171,7 +158,6 @@ iceberg:
 |-------|-----------|---------|
 | Data Storage | DuckDB + Apache Iceberg | 1.4.2+ |
 | Transformation | dbt | 1.10+ |
-| Visualization | Streamlit + Plotly | 1.53+ / 6.5+ |
 | Orchestration | Prefect | 3.6+ |
 | Language | Python | 3.10+ |
 | Dependency Mgmt | Poetry | Latest |
@@ -215,7 +201,3 @@ See **[docs/CLAUDE.md](docs/CLAUDE.md)** for Iceberg architecture deep-dive, RES
 ## License
 
 MIT License
-
----
-
-`poetry run streamlit run app.py` → http://localhost:8501
